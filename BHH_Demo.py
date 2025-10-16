@@ -1,18 +1,3 @@
-
-# -*- coding: utf-8 -*-
-##############################################################################################################
-# 说明：本脚本是“BNS（中子星并合）检测”完整最小示例，并在关键处标注了“相对于 BBH（黑洞并合）的区别”。
-#
-# 【BNS vs BBH 总览】
-# 1) 质量范围：BNS 啁啾质量更小（~0.9–1.8 Msun），质量比 q≈1；BBH 通常更大且 q 可偏离 1。
-# 2) 时长设置：BNS inspiral 更长 => 需要更长时域窗口（本示例 duration=32s；BBH 教程里常见 8s 左右）。
-# 3) 频率下限：BNS 信号在低频段累积 SNR 更明显 => f_min 通常取 20 Hz（一致作为高通）；BBH 有时会更高。
-# 4) 近似模型：BNS 常用 TaylorF2（频域前 inspiral 近似）；BBH 示例常用 IMRPhenomD/Pv2（含合并/振铃）。
-# 5) 自旋幅度：BNS 低自旋（|chi|≤0.05），BBH 可允许更宽的自旋范围。
-# 6) 距离/注入强度：BNS 通常设得更近或用目标 SNR 重标定来保证可检出；BBH 示例里往往采样更远距离或不同 SNR 范围。
-# 7) 预处理：高通/白化/PSD 估计流程一致，但 BNS 的 psd/window 选择会更偏向低频与长窗。
-
-##############################################################################################################
 import torch
 import matplotlib.pyplot as plt
 
@@ -26,43 +11,17 @@ plt.rcParams.update(
     }
 )
 
-# ---- server plotting helper (auto-save after plt.show) ----
-from pathlib import Path as __Path
-__FIG_DIR = __Path("./figures"); __FIG_DIR.mkdir(parents=True, exist_ok=True)
-__fig_idx = {"i": 0}
-def save_current_fig(name: str | None = None):
-    __fig_idx["i"] += 1
-    fname = __FIG_DIR / (name if name else f"fig_{__fig_idx['i']:02d}.png")
-    try:
-        import matplotlib.pyplot as _plt
-        _plt.savefig(fname, bbox_inches="tight")
-        print(f"[Saved] {fname}")
-    except Exception as e:
-        print(f"[Save failed] {fname}: {e}")
-# -----------------------------------------------------------
-
 # Most of this notebook can be run on CPU in a reasonable amount of time.
 # The example training at the end cannot be.
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(device)
 ###########################################################################################################3
-# 期望的时域波形持续时间 —— BNS 更长（inspiral 更长）
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】更长的时域窗口：BNS inspiral 更长，duration 通常设为 32–64s；
-# BBH 示例里常见 8s 左右即可覆盖合并/振铃。
-##############################################################################################################
-waveform_duration = 32
+# 期望的时域波形持续时间
+waveform_duration = 8
 # 我们今天将使用的所有数据的采样率
-##############################################################################################################
-# 采样率保持 2048 Hz：足以覆盖 1 kHz 级别的 BNS 主要频段；BBH 也常用 2048 或 4096。
-##############################################################################################################
 sample_rate = 2048
 
-# 定义最小频率、最大频率和参考频率（BNS 建议与 f_min 一致）
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】低频更关键：BNS 在低频累积 SNR 明显，f_min=20Hz 且与高通保持一致；
-# BBH 可根据场景取 20–30Hz 甚至更高。
-##############################################################################################################
+# 定义最小频率、最大频率和参考频率
 f_min = 20
 f_max = 1024
 f_ref = 20
@@ -80,23 +39,19 @@ from ml4gw.distributions import PowerLaw, Sine, Cosine, DeltaFunction
 from torch.distributions import Uniform
 
 # 在 CPU 上，保持波形数量大约为 100；在 GPU 上可以使用更大数量，
-# 但需要受限于显存大小。3080 建议先从 200 开始
-num_waveforms = 200
+# 但需要受限于显存大小。
+num_waveforms = 500
 
-# 创建一个参数分布的字典（BNS：小质量、q≈1、低自旋、较近距离）
-# 注意：这些分布并不是天体物理学上真实有意义的分布，仅用于演示
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】参数分布：较小质量、q≈1、低自旋、较近距离。
-# BBH 通常允许更大质量/更宽自旋/更远距离。
-##############################################################################################################
+# 创建一个参数分布的字典
+# 注意：这些分布并不是天体物理学上真实有意义的分布
 param_dict = {
-    "chirp_mass": Uniform(0.9, 1.8),          # BNS 典型啁啾质量（单位：Msun）
-    "mass_ratio": Uniform(0.85, 1.0),         # 质量比较接近
-    "chi1": Uniform(-0.05, 0.05),             # 低自旋
-    "chi2": Uniform(-0.05, 0.05),             # 低自旋
-    "distance": PowerLaw(40, 300, 2),         # 比 BBH 更近一些
+    "chirp_mass": PowerLaw(10, 100, -2.35),   # 啁啾质量，使用幂律分布
+    "mass_ratio": Uniform(0.125, 0.999),      # 质量比，使用均匀分布
+    "chi1": Uniform(-0.999, 0.999),           # 自旋参数 chi1，均匀分布
+    "chi2": Uniform(-0.999, 0.999),           # 自旋参数 chi2，均匀分布
+    "distance": PowerLaw(100, 1000, 2),       # 距离，使用幂律分布
     "phic": DeltaFunction(0),                 # 相位常数，固定为 0
-    "inclination": Sine(),                    # 倾角，正弦分布
+    "inclination": Sine(),                    # 倾角，使用正弦分布
 }
 
 # 然后从这些分布中采样参数
@@ -104,14 +59,9 @@ params = {
     k: v.sample((num_waveforms,)).to(device) for k, v in param_dict.items()
 }
 #########################################################################################################
-# 关键改动：使用 BNS 常用的 TaylorF2 频域近似
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】波形近似：这里使用 TaylorF2（频域 inspiral 近似），
-# 而 BBH 教程常见 IMRPhenomD/Pv2（含合并+振铃）。
-##############################################################################################################
-from ml4gw.waveforms import TaylorF2
+from ml4gw.waveforms import IMRPhenomD
 
-approximant = TaylorF2().to(device)
+approximant = IMRPhenomD().to(device)
 
 # 调用近似模型时，传入频率数组、参考频率和波形参数，
 # 将返回交叉极化 (cross) 和加号极化 (plus) 两个波形分量
@@ -126,16 +76,12 @@ plt.xscale("log")
 plt.yscale("log")
 plt.xlabel("Frequency (Hz)")
 plt.ylabel("Strain")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 
 from ml4gw.waveforms.generator import TimeDomainCBCWaveformGenerator
 from ml4gw.waveforms.conversion import chirp_mass_and_mass_ratio_to_components
 
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】时域生成器的配置：duration 更长、f_min 与高通一致，
-# 以捕获 BNS 更长的 inspiral 轨迹；BBH 常用更短窗口、可更关注合并段。
-##############################################################################################################
 waveform_generator = TimeDomainCBCWaveformGenerator(
     approximant=approximant,
     sample_rate=sample_rate,
@@ -159,7 +105,7 @@ times = torch.arange(0, waveform_duration, 1 / sample_rate)
 plt.plot(times, hp[0].cpu())
 plt.xlabel("Time (s)")
 plt.ylabel("Strain")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 
 from ml4gw.gw import get_ifo_geometry, compute_observed_strain
@@ -193,7 +139,7 @@ plt.plot(times, waveforms[0, 1].cpu(), label="L1", alpha=0.5)
 plt.xlabel("Time (s)")
 plt.ylabel("Strain")
 plt.legend()
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 
 from gwpy.timeseries import TimeSeries, TimeSeriesDict
@@ -261,7 +207,7 @@ plt.yscale("log")
 plt.xlabel("Frequency (Hz)")
 plt.ylabel("PSD (1/Hz)")
 plt.legend()
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 from ml4gw.gw import compute_ifo_snr, compute_network_snr
 
@@ -276,11 +222,7 @@ if psd.shape[-1] != num_freqs:
 
 # 我们可以计算单个干涉仪的 SNR 和网络 SNR
 # SNR 计算从之前设定的最小频率开始，到最大频率结束
-# 对于 BNS，highpass 与 f_min 保持一致
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】SNR 计算高通与 f_min 对齐（20 Hz）：BNS 对低频敏感，
-# 因此统一使用较低的高通；BBH 有时会使用更高的高通频率。
-##############################################################################################################
+# TODO：可能没必要写成多个函数
 h1_snr = compute_ifo_snr(
     responses=waveforms[:, 0],
     psd=psd[:, 0],
@@ -304,15 +246,11 @@ plt.xlabel("SNR")
 plt.ylabel("Count")
 plt.xlim(0, 100)
 plt.legend()
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 from ml4gw.gw import reweight_snrs
 
 # 采样目标 SNR，服从幂律分布，范围 12 到 100
-##############################################################################################################
-# 注：目标 SNR 采样范围在 BNS/BBH 示例中都常见（用于 curriculum-like 难度调节），
-# BNS 也可以根据需求压低上限或抬高下限以控制样本难度。
-##############################################################################################################
 target_snrs = PowerLaw(12, 100, -3).sample((num_waveforms,)).to(device)
 
 # 每个波形都会按照目标 SNR 与当前 SNR 的比值进行缩放
@@ -335,7 +273,7 @@ plt.xlabel("SNR")
 plt.ylabel("Count")
 plt.xlim(0, 100)
 plt.legend()
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 from ml4gw.dataloading import Hdf5TimeSeriesDataset
 
@@ -395,13 +333,13 @@ times = torch.arange(0, kernel_length + fduration, 1 / sample_rate)
 plt.plot(times, kernel[0, 0].cpu())
 plt.xlabel("Time (s)")
 plt.ylabel("Strain")
-plt.show(); save_current_fig()
+plt.show()
 
 times = torch.arange(0, kernel_length, 1 / sample_rate)
 plt.plot(times, whitened_kernel[0, 0].cpu())
 plt.xlabel("Time (s)")
 plt.ylabel("Whitened strain")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 pad = int(fduration / 2 * sample_rate)
 injected = kernel.detach().clone()
@@ -417,13 +355,13 @@ times = torch.arange(0, kernel_length + fduration, 1 / sample_rate)
 plt.plot(times, injected[idx, 0].cpu())
 plt.xlabel("Time (s)")
 plt.ylabel("Strain")
-plt.show(); save_current_fig()
+plt.show()
 
 times = torch.arange(0, kernel_length, 1 / sample_rate)
 plt.plot(times, whitened_injected[idx, 0].cpu())
 plt.xlabel("Time (s)")
 plt.ylabel("Whitened strain")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 y = torch.zeros(len(injected))
 y[::2] = 1
@@ -444,7 +382,7 @@ mrs = MultiResolutionSpectrogram(
         64,
         128,
         256,
-    ],  # 指定单一值会得到单分辨率谱图
+    ],  # Specififying just one value will create a single-resolution spectrogram
 ).to(device)
 
 # The Q-transform can be accessed either through the QScan,
@@ -465,15 +403,15 @@ sqt = SingleQTransform(
 #########################################################################################################
 specgram = mrs(whitened_injected)
 plt.imshow(specgram[idx, 0].cpu(), aspect="auto", origin="lower")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 specgram = qscan(whitened_injected)
 plt.imshow(specgram[idx, 0].cpu(), aspect="auto", origin="lower")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 specgram = sqt(whitened_injected)
 plt.imshow(specgram[idx, 0].cpu(), aspect="auto", origin="lower")
-plt.show(); save_current_fig()
+plt.show()
 #########################################################################################################
 from ml4gw.nn.resnet import ResNet1D
 
@@ -510,10 +448,6 @@ from torchmetrics.classification import BinaryAUROC
 from typing import Callable, Dict, List
 
 
-##############################################################################################################
-# 【BNS 相对 BBH 的区别】默认 approximant=TayorF2、duration=32、highpass=f_min=20
-# 贯穿到在线生成与增广流程，以适配 BNS 的信号时频特性。
-##############################################################################################################
 class Ml4gwDetectionModel(pl.LightningModule):
     """
     模型：包含在 GPU 上实时生成波形并执行预处理增强的方法；
@@ -531,7 +465,7 @@ class Ml4gwDetectionModel(pl.LightningModule):
             psd_length: float = 16,
             sample_rate: float = 2048,
             fftlength: float = 2,
-            highpass: float = 20,  # BNS 与 f_min 对齐
+            highpass: float = 32,
             # 数据加载参数
             chunk_length: float = 128,  # 我们稍后会介绍“chunk（分块）”的概念
             reads_per_chunk: int = 40,
@@ -539,9 +473,9 @@ class Ml4gwDetectionModel(pl.LightningModule):
             batch_size: int = 256,
             # 波形生成参数
             waveform_prob: float = 0.5,
-            approximant: Callable = waveforms.TaylorF2,  # 关键改动：默认使用 BNS 近似
+            approximant: Callable = waveforms.cbc.IMRPhenomD,
             param_dict: Dict[str, torch.distributions.Distribution] = param_dict,
-            waveform_duration: float = 32,  # 关键改动：BNS 更长
+            waveform_duration: float = 8,
             f_min: float = 20,
             f_max: float = None,
             f_ref: float = 20,
@@ -640,7 +574,7 @@ class Ml4gwDetectionModel(pl.LightningModule):
         num_injections = mask.sum().item()
 
         params = {
-            k: v.sample((num_injections,)).to(self.device)
+            k: v.sample((num_injections,)).to(device)
             for k, v in self.param_dict.items()
         }
 
@@ -781,7 +715,6 @@ class Ml4gwDetectionModel(pl.LightningModule):
         )
 
     def val_dataloader(self):
-        import h5py, torch
         with h5py.File(data_dir / "validation_dataset.hdf5", "r") as f:
             X = torch.Tensor(f["X"][:])
             y = torch.Tensor(f["y"][:])
@@ -794,7 +727,6 @@ class Ml4gwDetectionModel(pl.LightningModule):
         )
 
 #########################################################################################################
-from ml4gw.nn.resnet import ResNet1D
 architecture = ResNet1D(
     in_channels=2,
     layers=[2, 2],
@@ -805,25 +737,14 @@ architecture = ResNet1D(
 max_fpr = 1e-3
 metric = BinaryAUROC(max_fpr=max_fpr)
 
-# 关键改动：传入 BNS 的 approximant 和时长/高通
-from pathlib import Path as _Path
-data_dir = _Path("./data")
-from ml4gw import waveforms as _w
 model = Ml4gwDetectionModel(
     architecture=architecture,
     metric=metric,
-    approximant=_w.TaylorF2,
-    waveform_duration=waveform_duration,
-    f_min=f_min,
-    f_ref=f_ref,
-    highpass=f_min,
 )
-
 #########################################################################################################
-from lightning import pytorch as pl
 log_dir = data_dir / "logs"
 
-logger = pl.loggers.CSVLogger(log_dir, name="ml4gw-expt-bns")
+logger = pl.loggers.CSVLogger(log_dir, name="ml4gw-expt")
 trainer = pl.Trainer(
     max_epochs=30,
     precision="16-mixed",
@@ -836,7 +757,7 @@ trainer.fit(model)
 #########################################################################################################
 import csv
 
-path = log_dir / Path("ml4gw-expt-bns")
+path = log_dir / Path("ml4gw-expt")
 # Take the most recent run, if we've done multiple
 versions = [int(str(dir).split("_")[-1]) for dir in path.iterdir()]
 version = sorted(versions)[-1]
@@ -858,4 +779,16 @@ plt.plot(valid_steps, valid_loss, label="Validation AUROC")
 plt.legend()
 plt.xlabel("Step")
 plt.ylabel("Metric value")
-plt.show(); save_current_fig()
+
+
+
+
+
+
+
+
+
+
+
+
+
